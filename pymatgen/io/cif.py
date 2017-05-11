@@ -16,9 +16,12 @@ from six.moves import zip, cStringIO
 
 import numpy as np
 from functools import partial
-from inspect import getargspec
+try:
+    from inspect import getfullargspec as getargspec
+except ImportError:
+    from inspect import getargspec
 from itertools import groupby
-from pymatgen.core.periodic_table import Element, Specie, get_el_sp
+from pymatgen.core.periodic_table import Element, Specie, get_el_sp, DummySpecie
 from monty.io import zopen
 from pymatgen.util.coord_utils import in_coord_list_pbc, pbc_diff, \
     find_in_coord_list_pbc
@@ -162,9 +165,9 @@ class CifBlock(object):
     @classmethod
     def _process_string(cls, string):
         # remove comments
-        string = re.sub("(\s|^)#.*$", "", string, flags=re.MULTILINE)
+        string = re.sub(r"(\s|^)#.*$", "", string, flags=re.MULTILINE)
         # remove empty lines
-        string = re.sub("^\s*\n", "", string, flags=re.MULTILINE)
+        string = re.sub(r"^\s*\n", "", string, flags=re.MULTILINE)
         # remove non_ascii
         string = remove_non_ascii(string)
 
@@ -260,13 +263,13 @@ class CifFile(object):
     @classmethod
     def from_string(cls, string):
         d = OrderedDict()
-        for x in re.split("^\s*data_", "x\n" + string,
+        for x in re.split(r"^\s*data_", "x\n" + string,
                           flags=re.MULTILINE | re.DOTALL)[1:]:
 
             # Skip over Cif block that contains powder diffraction data.
             # Some elements in this block were missing from CIF files in Springer materials/Pauling file DBs.
             # This block anyway does not contain any structure information, and CifParser was also not parsing it.
-            if 'powder_pattern' in re.split("\n", x, 1)[0]:
+            if 'powder_pattern' in re.split(r"\n", x, 1)[0]:
                 continue
             c = CifBlock.from_string("data_" + x)
             d[c.header] = c
@@ -427,7 +430,7 @@ class CifParser(object):
 
                     try:
                         for d in _get_cod_data():
-                            if sg == re.sub("\s+", "",
+                            if sg == re.sub(r"\s+", "",
                                             d["hermann_mauguin"]) :
                                 xyz = d["symops"]
                                 symops = [SymmOp.from_xyz_string(s)
@@ -479,37 +482,32 @@ class CifParser(object):
 
         except (ValueError, KeyError):
             oxi_states = None
-
         return oxi_states
 
-    def _get_structure(self, data, primitive, substitution_dictionary=None):
+    def _get_structure(self, data, primitive):
         """
         Generate structure from part of the cif.
         """
-        # Symbols often representing
-        # common representations for elements/water in cif files
-        special_symbols = {"D": "D", "Hw": "H", "Ow": "O", "Wat": "O",
-                           "wat": "O"}
-        elements = [el.symbol for el in Element]
+        def parse_symbol(sym):
+            # Common representations for elements/water in cif files
+            # TODO: fix inconsistent handling of water
+            special = {"D": "D", "Hw": "H", "Ow": "O", "Wat": "O",
+                       "wat": "O", "OH": "", "OH2": ""}
+            m = re.findall(r"w?[A-Z][a-z]*", sym)
+            if m and m != "?":
+                if sym in special:
+                    v = special[sym]
+                else:
+                    v = special.get(m[0], m[0])
+                if len(m) > 1 or (m[0] in special):
+                    warnings.warn("{} parsed as {}".format(sym, v))
+                return v
 
         lattice = self.get_lattice(data)
         self.symmetry_operations = self.get_symops(data)
         oxi_states = self.parse_oxi_states(data)
 
         coord_to_species = OrderedDict()
-
-        def parse_symbol(sym):
-
-            if substitution_dictionary:
-                return substitution_dictionary.get(sym)
-            elif sym in ['OH', 'OH2']:
-                warnings.warn("Symbol '{}' not recognized".format(sym))
-                return ""
-            else:
-                m = re.findall(r"w?[A-Z][a-z]*", sym)
-                if m and m != "?":
-                    return m[0]
-                return ""
 
         def get_matching_coord(coord):
             keys = list(coord_to_species.keys())
@@ -565,15 +563,15 @@ class CifParser(object):
                     symbol_str_lst = symbol_str.split(' + ')
                     for elocc_idx in range(len(symbol_str_lst)):
                         # Remove any bracketed items in the string
-                        symbol_str_lst[elocc_idx] = re.sub(
-                            '\([0-9]*\)', '', symbol_str_lst[elocc_idx].strip())
+                        symbol_str_lst[elocc_idx] = re.sub(r'\([0-9]*\)', '',
+                            symbol_str_lst[elocc_idx].strip())
 
                         # Extract element name and its occupancy from the
                         # string, and store it as a
                         # key-value pair in "els_occ".
-                        els_occu[str(re.findall('\D+', symbol_str_lst[
+                        els_occu[str(re.findall(r'\D+', symbol_str_lst[
                             elocc_idx].strip())[1]).replace('<sup>', '')] = \
-                            float('0' + re.findall('\.?\d+', symbol_str_lst[
+                            float('0' + re.findall(r'\.?\d+', symbol_str_lst[
                                 elocc_idx].strip())[1])
 
                     x = str2float(data["_atom_site_fract_x"][idx])
@@ -604,37 +602,28 @@ class CifParser(object):
                         del data.data[cif_key][id]
 
         ############################################################
-
         for i in range(len(data["_atom_site_label"])):
-            symbol = parse_symbol(data["_atom_site_label"][i])
-
-            if symbol:
-                if symbol not in elements and symbol not in special_symbols:
-                    symbol = symbol[:2]
-            else:
-                continue
-            # make sure symbol was properly parsed from _atom_site_label
-            # otherwise get it from _atom_site_type_symbol
             try:
-                if symbol in special_symbols:
-                    get_el_sp(special_symbols.get(symbol))
-                else:
-                    Element(symbol)
-            except (KeyError, ValueError):
-                # sometimes the site doesn't have the type_symbol.
-                # we then hope the type_symbol can be parsed from the label
-                if "_atom_site_type_symbol" in data.data.keys():
-                    symbol = data["_atom_site_type_symbol"][i]
+                # If site type symbol exists, use it. Otherwise, we use the
+                # label.
+                symbol = parse_symbol(data["_atom_site_type_symbol"][i])
+            except KeyError:
+                symbol = parse_symbol(data["_atom_site_label"][i])
+            if not symbol:
+                continue
 
             if oxi_states is not None:
-                if symbol in special_symbols:
-                    el = get_el_sp(special_symbols.get(symbol) +
-                                   str(oxi_states[symbol]))
-                else:
-                    el = Specie(symbol, oxi_states.get(symbol, 0))
+                o_s = oxi_states.get(symbol, 0)
+                # use _atom_site_type_symbol if possible for oxidation state
+                if "_atom_site_type_symbol" in data.data.keys():
+                    oxi_symbol = data["_atom_site_type_symbol"][i]
+                    o_s = oxi_states.get(oxi_symbol, o_s)
+                try:
+                    el = Specie(symbol, o_s)
+                except:
+                    el = DummySpecie(symbol, o_s)
             else:
-
-                el = get_el_sp(special_symbols.get(symbol, symbol))
+                el = get_el_sp(symbol)
 
             x = str2float(data["_atom_site_fract_x"][i])
             y = str2float(data["_atom_site_fract_y"][i])
@@ -881,10 +870,10 @@ def str2float(text):
     """
 
     try:
-        return float(re.sub("\(.+\)", "", text))
+        return float(re.sub(r"\(.+\)", "", text))
     except TypeError:
         if isinstance(text, list) and len(text) == 1:
-            return float(re.sub("\(.+\)", "", text[0]))
+            return float(re.sub(r"\(.+\)", "", text[0]))
     except ValueError as ex:
         if text.strip() == ".":
             return 0

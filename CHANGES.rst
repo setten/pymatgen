@@ -1,6 +1,28 @@
 Change log
 ==========
 
+v4.7.5
+------
+* MultiXYZ support (Xiaohui Xu)
+* Misc bug fixes and cleanup.
+
+v4.7.4
+------
+* New ferroelectric analysis module (Tess).
+* Magmom support and MagSymmOp (Matthew Horton).
+* Improved CIF Parsing.
+
+v4.7.3
+------
+* Sympy now a dependency.
+* Massive improvements to elastic package. (Joseph Montoya)
+* Symmetrized structures now contain Wyckoff symbols.
+* More robust CIF parsing and MITRelaxSet parameters (Will).
+
+v4.7.2
+------
+* Support for Abinit 8.2.2, including support for DFPT calculations. (Matteo)
+
 v4.7.1
 ------
 * Pathfinder speedup

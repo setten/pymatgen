@@ -1,7 +1,7 @@
 Change log
 ==========
 
-v4.7.1
+v4.7.5
 ------
-* Pathfinder speedup
-* Minor bug fix for plots.
+* MultiXYZ support (Xiaohui Xu)
+* Misc bug fixes and cleanup.

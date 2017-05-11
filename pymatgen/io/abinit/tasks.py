@@ -20,7 +20,7 @@ from itertools import product
 from six.moves import map, zip, StringIO
 from monty.dev import deprecated
 from monty.string import is_string, list_strings
-from monty.termcolor import colored
+from monty.termcolor import colored, cprint
 from monty.collections import AttrDict
 from monty.functools import lazy_property, return_none_if_raise
 from monty.json import MSONable
@@ -970,7 +970,7 @@ batch_adapter:
         # Submit the task and save the queue id.
         try:
             qjob, process = self.qadapter.submit_to_queue(script_file)
-            task.set_status(task.S_SUB, msg='submitted to queue')
+            task.set_status(task.S_SUB, msg='Submitted to queue')
             task.set_qjob(qjob)
             return process
 
@@ -1087,11 +1087,13 @@ class AbinitBuild(object):
             fh.write(script)
         qjob, process = manager.qadapter.submit_to_queue(script_file)
         process.wait()
+        # To avoid: ResourceWarning: unclosed file <_io.BufferedReader name=87> in py3k
+        process.stderr.close()
 
         if process.returncode != 0:
             logger.critical("Error while executing %s" % script_file)
 
-        with open(stdout, "r") as fh:
+        with open(stdout, "rt") as fh:
             self.info = fh.read()
 
         # info string has the following format.
@@ -1624,6 +1626,10 @@ class Task(six.with_metaclass(abc.ABCMeta, Node)):
     def wait(self):
         """Wait for child process to terminate. Set and return returncode attribute."""
         self._returncode = self.process.wait()
+        try:
+            self.process.stderr.close()
+        except:
+            pass
         self.set_status(self.S_DONE, "status set to Done")
 
         return self._returncode
@@ -2384,7 +2390,8 @@ class Task(six.with_metaclass(abc.ABCMeta, Node)):
             except QueueAdapterError as exc:
                 # If autoparal cannot find a qadapter to run the calculation raises an Exception
                 self.history.critical(exc)
-                msg = "Error trying to find a running configuration:\n%s" % straceback()
+                msg = "Error while trying to run autoparal in task:%s\n%s" % (repr(task), straceback())
+                cprint(msg, "yellow")
                 self.set_status(self.S_QCRITICAL, msg=msg)
                 return 0
             except Exception as exc:
@@ -2404,11 +2411,12 @@ class Task(six.with_metaclass(abc.ABCMeta, Node)):
                 try:
                     self.autoparal_run()
                     self.history.info("Second call to autoparal succeeded!")
+                    #cprint("Second call to autoparal succeeded!", "green")
 
                 except Exception as exc:
                     self.history.critical("Second call to autoparal failed with %s. Cannot recover!", exc)
                     msg = "Tried autoparal again but got:\n%s" % straceback()
-                    # logger.critical(msg)
+                    cprint(msg, "red")
                     self.set_status(self.S_ABICRITICAL, msg=msg)
                     return 0
 
@@ -2642,9 +2650,11 @@ class AbinitTask(Task):
         process = self.manager.to_shell_manager(mpi_procs=1).launch(self)
         self.history.pop()
         retcode = process.wait()
+        # To avoid: ResourceWarning: unclosed file <_io.BufferedReader name=87> in py3k
+        process.stderr.close()
 
         # Remove the variables added for the automatic parallelization
-        self.input.remove_vars(autoparal_vars.keys())
+        self.input.remove_vars(list(autoparal_vars.keys()))
 
         ##############################################################
         # Parse the autoparal configurations from the main output file
@@ -3370,7 +3380,6 @@ class DfptTask(AbinitTask):
             return None
 
 
-# TODO Remove
 class DdeTask(DfptTask):
     """Task for DDE calculations."""
 
@@ -3412,7 +3421,6 @@ class DdeTask(DfptTask):
         return results.register_gridfs_file(DDB=(self.outdir.has_abiext("DDE"), "t"))
 
 
-# TODO Remove
 class DteTask(DfptTask):
     """Task for DTE calculations."""
 
@@ -4225,9 +4233,11 @@ class OpticTask(Task):
         process = self.manager.to_shell_manager(mpi_procs=1).launch(self)
         self.history.pop()
         retcode = process.wait()
+        # To avoid: ResourceWarning: unclosed file <_io.BufferedReader name=87> in py3k
+        process.stderr.close()
 
         # Remove the variables added for the automatic parallelization
-        self.input.remove_vars(autoparal_vars.keys())
+        self.input.remove_vars(list(autoparal_vars.keys()))
 
         ##############################################################
         # Parse the autoparal configurations from the main output file
