@@ -38,6 +38,38 @@ with open(os.path.join(os.path.dirname(__file__),
 
 _pt_row_sizes = (2, 8, 8, 18, 18, 32, 32)
 
+data_add = {"Og": {"Electrical resistivity": "no data",
+                   "Electronic structure": "[Rn].5f14.6d10.7s2.7p6",
+                   "Oxidation states": [0],
+                   "Reflectivity": "no data",
+                   "Molar volume": "no data",
+                   "Van der waals radius": "no data",
+                   "Melting point": "no data",
+                   "Bulk modulus": "no data",
+                   "Mineral hardness": "no data",
+                   "Mendeleev no": 294,
+                   "Atomic no": 118,
+                   "Boiling point": "no data",
+                   "Common oxidation states": [0],
+                   "Brinell hardness": "no data",
+                   "Density of solid": "no data",
+                   "Thermal conductivity": "no data",
+                   "Critical temperature": "no data K",
+                   "Name": "Oganesson",
+                   "Atomic mass": '294',
+                   "Coefficient of linear thermal expansion": "6.4 x10<sup>-6</sup>K<sup>-1</sup>",
+                   "Rigidity modulus": "173 GPa",
+                   "Youngs modulus": "447 GPa",
+                   "Velocity of sound": "5970 m s<sup>-1</sup>",
+                   "X": 2.2,
+                   "Liquid range": "1816 K",
+                   "Atomic radius calculated": 1.78,
+                   "Vickers hardness": "no data MN m<sup>-2</sup>",
+                   "Superconduction temperature": "0.49 K",
+                   "Refractive index": "no data",
+                   "Ionic radii": {"8": 0.5, "3": 0.82, "4": 0.76, "5": 0.705, "7": 0.52},
+                   "Atomic radius": 1.3}}
+_pt_data.update(data_add)
 
 class Element(Enum):
     """
@@ -371,6 +403,7 @@ class Element(Enum):
     Md = "Md"
     No = "No"
     Lr = "Lr"
+    Og = "Og"
 
     def __init__(self, symbol):
         self.symbol = "%s" % symbol
