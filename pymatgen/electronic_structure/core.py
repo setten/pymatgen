@@ -439,7 +439,7 @@ class Magmom(MSONable):
         """
         Equal if 'global' magnetic moments are the same, saxis can differ.
         """
-        return self.global_moment == other.global_moment
+        return np.allclose(self.global_moment, other.global_moment)
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -467,7 +467,7 @@ class Magmom(MSONable):
         structures and might give non-sensical results except in the case
         of only slightly non-collinear structures (e.g. small canting).
         """
-        return self.get_00t_magmom_with_xyz_saxis()[2]
+        return float(self.get_00t_magmom_with_xyz_saxis()[2])
 
     def __str__(self):
         return str(float(self))

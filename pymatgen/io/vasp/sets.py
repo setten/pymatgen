@@ -208,9 +208,9 @@ class DictSet(VaspInputSet):
             of two ways, e.g. either {"LDAUU":{"O":{"Fe":5}}} to set LDAUU
             for Fe to 5 in an oxide, or {"LDAUU":{"Fe":5}} to set LDAUU to
             5 regardless of the input structure.
-        user_kpoints_settings (dict): Allow user to override kpoints setting by
-            supplying a dict. E.g., {"reciprocal_density": 1000}. Default is
-            None.
+        user_kpoints_settings (dict or Kpoints): Allow user to override kpoints 
+            setting by supplying a dict E.g., {"reciprocal_density": 1000}. 
+            User can also supply Kpoints object. Default is None.
         constrain_total_magmom (bool): Whether to constrain the total magmom
             (NUPDOWN in INCAR) to be the sum of the expected MAGMOM for all
             species. Defaults to False.
@@ -332,10 +332,10 @@ class DictSet(VaspInputSet):
         """
         Gets the default number of electrons for a given structure.
         """
-        n = 0
-        for ps in self.potcar:
-            n += self.structure.composition[ps.element] * ps.ZVAL
-        return n
+        return int(round(
+            sum([self.structure.composition.element_composition[ps.element]
+                 * ps.ZVAL
+                 for ps in self.potcar])))
 
     @property
     def kpoints(self):
@@ -348,6 +348,9 @@ class DictSet(VaspInputSet):
             reciprocal lattice vector proportional to its length.
         """
         settings = self.user_kpoints_settings or self.config_dict["KPOINTS"]
+
+        if isinstance(settings, Kpoints):
+            return settings
 
         # If grid_density is in the kpoints_settings use
         # Kpoints.automatic_density
@@ -444,7 +447,8 @@ class MPHSERelaxSet(DictSet):
 class MPStaticSet(MPRelaxSet):
 
     def __init__(self, structure, prev_incar=None, prev_kpoints=None,
-                 lepsilon=False, lcalcpol=False, reciprocal_density=100, **kwargs):
+                 lepsilon=False, lcalcpol=False, reciprocal_density=100,
+                 **kwargs):
         """
         Run a static calculation.
 
@@ -454,9 +458,10 @@ class MPStaticSet(MPRelaxSet):
             prev_kpoints (Kpoints): Kpoints from previous run.
             lepsilon (bool): Whether to add static dielectric calculation
             reciprocal_density (int): For static calculations,
-                we usually set the reciprocal density by voluyme. This is a
+                we usually set the reciprocal density by volume. This is a
                 convenience arg to change that, rather than using
-                user_kpoints_settings. Defaults to 100.
+                user_kpoints_settings. Defaults to 100, which is ~50% more than
+                that of standard relaxation calculations.
             \\*\\*kwargs: kwargs supported by MPRelaxSet.
         """
         super(MPStaticSet, self).__init__(structure, **kwargs)
@@ -487,6 +492,12 @@ class MPStaticSet(MPRelaxSet):
         if self.lepsilon:
             incar["IBRION"] = 8
             incar["LEPSILON"] = True
+
+            # LPEAD=T: numerical evaluation of overlap integral prevents
+            # LRF_COMMUTATOR errors and can lead to better expt. agreement
+            # but produces slightly different results
+            incar["LPEAD"] = True
+
             # Note that DFPT calculations MUST unset NSW. NSW = 0 will fail
             # to output ionic.
             incar.pop("NSW", None)

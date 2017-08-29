@@ -11,6 +11,7 @@ from pymatgen.core.operations import SymmOp
 from pymatgen.core.structure import IStructure, Structure, IMolecule, \
     StructureError, Molecule
 from pymatgen.core.lattice import Lattice
+from pymatgen.electronic_structure.core import Magmom
 import random
 import os
 import numpy as np
@@ -48,10 +49,9 @@ class IStructureTest(PymatgenTest):
         coords.append([0.75, 0.5, 0.75])
         self.assertRaises(StructureError, IStructure, self.lattice,
                           ["Si"] * 3, coords, validate_proximity=True)
-        #these shouldn't raise an error
+        # these shouldn't raise an error
         IStructure(self.lattice, ["Si"] * 2, coords[:2], True)
         IStructure(self.lattice, ["Si"], coords[:1], True)
-
 
     def test_volume_and_density(self):
         self.assertAlmostEqual(self.struct.volume, 40.04, 2, "Volume wrong!")
@@ -296,6 +296,14 @@ class IStructureTest(PymatgenTest):
         bcc_prim = bcc_li.get_primitive_structure()
         self.assertEqual(len(bcc_prim), 1)
         self.assertAlmostEqual(bcc_prim.lattice.alpha, 109.47122, 3)
+        bcc_li = IStructure(Lattice.cubic(4.09), ["Li"] * 2, coords,
+                            site_properties={"magmom": [1, -1]})
+        bcc_prim = bcc_li.get_primitive_structure()
+        self.assertEqual(len(bcc_prim), 1)
+        self.assertAlmostEqual(bcc_prim.lattice.alpha, 109.47122, 3)
+        bcc_prim = bcc_li.get_primitive_structure(use_site_props=True)
+        self.assertEqual(len(bcc_prim), 2)
+        self.assertAlmostEqual(bcc_prim.lattice.alpha, 90, 3)
 
         coords = [[0] * 3, [0.5] * 3, [0.25] * 3, [0.26] * 3]
         s = IStructure(Lattice.cubic(4.09), ["Ag"] * 4, coords)
@@ -437,6 +445,15 @@ class StructureTest(PymatgenTest):
         s[0] = "Fe", [0.9, 0.9, 0.9], {"magmom": 5}
         self.assertEqual(s.formula, "Fe1")
         self.assertEqual(s[0].magmom, 5)
+
+        # Test atomic replacement.
+        s["Fe"] = "Mn"
+        self.assertEqual(s.formula, "Mn1")
+
+        # Test slice replacement.
+        s = PymatgenTest.get_structure("Li2O")
+        s[1:3] = "S"
+        self.assertEqual(s.formula, "Li1 S2")
 
     def test_non_hash(self):
         self.assertRaises(TypeError, dict, [(self.structure, 1)])
@@ -712,6 +729,34 @@ class StructureTest(PymatgenTest):
         self.assertRaises(ValueError, Structure.from_spacegroup,
                           "Pm-3m", Lattice.cubic(3), ["Cs"],
                           [[0, 0, 0], [0.5, 0.5, 0.5]])
+    
+    def test_from_magnetic_spacegroup(self):
+
+        # AFM MnF
+        s1 = Structure.from_magnetic_spacegroup("P4_2'/mnm'", Lattice.tetragonal(4.87, 3.30),
+                                                ["Mn", "F"],
+                                                [[0, 0, 0],
+                                                 [0.30, 0.30, 0.00]],
+                                                {'magmom': [4, 0]})
+
+        self.assertEqual(s1.formula, "Mn2 F4")
+        self.assertEqual(sum(map(float, s1.site_properties['magmom'])), 0)
+        self.assertEqual(max(map(float, s1.site_properties['magmom'])), 4)
+        self.assertEqual(min(map(float, s1.site_properties['magmom'])), -4)
+
+        # AFM LaMnO3, ordered on (001) planes
+        s2 = Structure.from_magnetic_spacegroup("Pn'ma'", Lattice.orthorhombic(5.75, 7.66, 5.53),
+                                                ["La", "Mn", "O", "O"],
+                                                [[0.05, 0.25, 0.99],
+                                                 [0.00, 0.00, 0.50],
+                                                 [0.48, 0.25, 0.08],
+                                                 [0.31, 0.04, 0.72]],
+                                                {'magmom': [0, Magmom([4, 0, 0]), 0, 0]})
+
+        self.assertEqual(s2.formula, "La4 Mn4 O12")
+        self.assertEqual(sum(map(float, s2.site_properties['magmom'])), 0)
+        self.assertEqual(max(map(float, s2.site_properties['magmom'])), 4)
+        self.assertEqual(min(map(float, s2.site_properties['magmom'])), -4)
 
     def test_merge_sites(self):
         species = [{'Ag': 0.5}, {'Cl': 0.25}, {'Cl': 0.1},
@@ -1115,8 +1160,11 @@ class MoleculeTest(PymatgenTest):
                             "C", "H"], coords)
         benzene.substitute(1, sub)
         self.assertEqual(benzene.formula, "H8 C7")
-        #Carbon attached should be in plane.
+        # Carbon attached should be in plane.
         self.assertAlmostEqual(benzene[11].coords[2], 0)
+        benzene[14] = "Br"
+        benzene.substitute(13, sub)
+        self.assertEqual(benzene.formula, "H9 C8 Br1")
 
     def test_to_from_file_string(self):
         for fmt in ["xyz", "json", "g03"]:

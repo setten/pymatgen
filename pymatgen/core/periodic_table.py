@@ -411,7 +411,7 @@ class Element(Enum):
 
         # Store key variables for quick access
         self.Z = d["Atomic no"]
-        self.X = d.get("X", 0)
+
         at_r = d.get("Atomic radius", "no data")
         if str(at_r).startswith("no data"):
             self.atomic_radius = None
@@ -419,6 +419,17 @@ class Element(Enum):
             self.atomic_radius = Length(at_r, "ang")
         self.atomic_mass = Mass(d["Atomic mass"], "amu")
         self._data = d
+
+    @property
+    def X(self):
+        if "X" in self._data:
+            return self._data["X"]
+        else:
+            warnings.warn("No electronegativity for %s. Setting to infinity. "
+                          "This has no physical meaning, and is mainly done to "
+                          "avoid errors caused by the code expecting a float."
+                          % self.symbol)
+            return float("inf")
 
     def __getattr__(self, item):
         if item in ["mendeleev_no", "electrical_resistivity",
@@ -1135,7 +1146,7 @@ class DummySpecie(Specie):
             raise AttributeError(a)
 
     def __hash__(self):
-        return 1
+        return self.symbol.__hash__()
 
     def __eq__(self, other):
         """
@@ -1168,9 +1179,11 @@ class DummySpecie(Specie):
     @property
     def Z(self):
         """
-        DummySpecie is always assigned an atomic number of 0.
+        DummySpecie is always assigned an atomic number equal to the hash of
+        the symbol. The expectation is that someone would be an actual dummy
+        to use atomic numbers for a Dummy specie.
         """
-        return 0
+        return self.symbol.__hash__()
 
     @property
     def oxi_state(self):
@@ -1182,7 +1195,8 @@ class DummySpecie(Specie):
     @property
     def X(self):
         """
-        DummySpecie is always assigned an electronegativity of 0.
+        DummySpecie is always assigned an electronegativity of 0. The effect of
+        this is that DummySpecie are always sorted in front of actual Specie.
         """
         return 0
 
@@ -1208,7 +1222,7 @@ class DummySpecie(Specie):
         Raises:
             ValueError if species_string cannot be intepreted.
         """
-        m = re.search(r"([A-Z][a-z]*)([0-9\.]*)([\+\-]*)(.*)", species_string)
+        m = re.search(r"([A-Z][a-z]*)([0-9.]*)([+\-]*)(.*)", species_string)
         if m:
             sym = m.group(1)
             if m.group(2) == "" and m.group(3) == "":
