@@ -555,7 +555,7 @@ limits:
     def _parse_limits(self, d):
         # Time limits.
         self.set_timelimit(qu.timelimit_parser(d.pop("timelimit")))
-        tl_hard = d.pop("timelimit_hard",None)
+        tl_hard = d.pop("timelimit_hard", None)
         tl_hard = qu.timelimit_parser(tl_hard) if tl_hard is not None else self.timelimit
         self.set_timelimit_hard(tl_hard)
 
@@ -567,7 +567,7 @@ limits:
             raise ValueError("min_cores %s cannot be greater than max_cores %s" % (self.min_cores, self.max_cores))
 
         # Memory
-        # FIXME: Neeed because autoparal 1 with paral_kgb 1 is not able to estimate memory
+        # FIXME: Needed because autoparal 1 with paral_kgb 1 is not able to estimate memory
         self.min_mem_per_proc = qu.any2mb(d.pop("min_mem_per_proc", self.hw.mem_per_core))
         self.max_mem_per_proc = qu.any2mb(d.pop("max_mem_per_proc", self.hw.mem_per_node))
 
@@ -1146,9 +1146,9 @@ limits:
         """
         # TODO : find a formula that works for all max_cores
         if self.max_cores > 40:
-          base_increase = 4 * int(self.max_cores / 40)
+            base_increase = 4 * int(self.max_cores / 40)
         else:
-          base_increase = 4
+            base_increase = 4
 
         new_cores = self.hint_cores + factor * base_increase
 

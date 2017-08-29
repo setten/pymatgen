@@ -48,6 +48,7 @@ __all__ = [
     "ParalHints",
     "AbinitTask",
     "ScfTask",
+    "ScrTask",
     "NscfTask",
     "RelaxTask",
     "DdkTask",
@@ -2390,7 +2391,7 @@ class Task(six.with_metaclass(abc.ABCMeta, Node)):
             except QueueAdapterError as exc:
                 # If autoparal cannot find a qadapter to run the calculation raises an Exception
                 self.history.critical(exc)
-                msg = "Error while trying to run autoparal in task:%s\n%s" % (repr(task), straceback())
+                msg = "Error while trying to run autoparal in task:%s\n%s" % (repr(self), straceback())
                 cprint(msg, "yellow")
                 self.set_status(self.S_QCRITICAL, msg=msg)
                 return 0
