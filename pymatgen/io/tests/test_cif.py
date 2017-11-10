@@ -352,7 +352,7 @@ loop_
     def test_CifWriter(self):
         filepath = os.path.join(test_dir, 'POSCAR')
         poscar = Poscar.from_file(filepath)
-        writer = CifWriter(poscar.structure, symprec=0.001)
+        writer = CifWriter(poscar.structure, symprec=0.01)
         ans = """# generated using pymatgen
 data_FePO4
 _symmetry_space_group_name_H-M   Pnma
@@ -396,7 +396,7 @@ loop_
 
     def test_symmetrized(self):
         filepath = os.path.join(test_dir, 'POSCAR')
-        poscar = Poscar.from_file(filepath)
+        poscar = Poscar.from_file(filepath, check_for_POTCAR=False)
         writer = CifWriter(poscar.structure, symprec=0.1)
         ans = """# generated using pymatgen
 data_FePO4
@@ -490,16 +490,16 @@ loop_
         ans = """# generated using pymatgen
 data_Li2O
 _symmetry_space_group_name_H-M   Fm-3m
-_cell_length_a   4.61000000
-_cell_length_b   4.61000000
-_cell_length_c   4.61000000
+_cell_length_a   4.65884171
+_cell_length_b   4.65884171
+_cell_length_c   4.65884171
 _cell_angle_alpha   90.00000000
 _cell_angle_beta   90.00000000
 _cell_angle_gamma   90.00000000
 _symmetry_Int_Tables_number   225
 _chemical_formula_structural   Li2O
 _chemical_formula_sum   'Li8 O4'
-_cell_volume   97.972181
+_cell_volume   101.119255769
 _cell_formula_units_Z   4
 loop_
  _symmetry_equiv_pos_site_id
@@ -709,8 +709,8 @@ loop_
  _atom_site_fract_y
  _atom_site_fract_z
  _atom_site_occupancy
-  Li+  Li1  8  0.250000  0.250000  0.250000  1.0
-  O2-  O2  4  0.000000  0.000000  0.000000  1.0"""
+  Li+  Li1  8  0.250000  0.250000  0.250000  1
+  O2-  O2  4  0.000000  0.000000  0.000000  1"""
 
         for l1, l2 in zip(str(writer).split("\n"), ans.split("\n")):
             self.assertEqual(l1.strip(), l2.strip())
@@ -980,10 +980,16 @@ loop_
 class MagCifTest(unittest.TestCase):
 
     def setUp(self):
-        self.mcif = CifParser(os.path.join(test_dir, "magnetic.example.NiO.mcif"))
-        self.mcif_ncl = CifParser(os.path.join(test_dir, "magnetic.ncl.example.GdB4.mcif"))
-        self.mcif_incom = CifParser(os.path.join(test_dir, "magnetic.incommensurate.example.Cr.mcif"))
-        self.mcif_disord = CifParser(os.path.join(test_dir, "magnetic.disordered.example.CuMnO2.mcif"))
+        self.mcif = CifParser(os.path.join(test_dir,
+                                           "magnetic.example.NiO.mcif"))
+        self.mcif_ncl = CifParser(os.path.join(test_dir,
+                                               "magnetic.ncl.example.GdB4.mcif"))
+        self.mcif_incom = CifParser(os.path.join(test_dir,
+                                                 "magnetic.incommensurate.example.Cr.mcif"))
+        self.mcif_disord = CifParser(os.path.join(test_dir,
+                                                  "magnetic.disordered.example.CuMnO2.mcif"))
+        self.mcif_ncl2 = CifParser(os.path.join(test_dir,
+                                                  "Mn3Ge_IR2.mcif"))
 
     def test_mcif_detection(self):
         self.assertTrue(self.mcif.feature_flags["magcif"])
@@ -1181,6 +1187,15 @@ loop_
 """
 
         self.assertEqual(cw.__str__(), cw_ref_string_magnitudes)
+
+        # test we're getting correct magmoms in ncl case
+        s_ncl2 = self.mcif_ncl2.get_structures()[0]
+        list_magmoms = [list(m) for m in s_ncl2.site_properties['magmom']]
+        self.assertEqual(list_magmoms[0][0], 0.0)
+        self.assertAlmostEqual(list_magmoms[0][1], 5.9160793408726366)
+        self.assertAlmostEqual(list_magmoms[1][0], -5.1234749999999991)
+        self.assertAlmostEqual(list_magmoms[1][1], 2.9580396704363183)
+
 
     def test_bibtex(self):
 

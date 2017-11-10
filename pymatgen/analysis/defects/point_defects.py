@@ -23,7 +23,8 @@ import json
 import numpy as np
 from bisect import bisect_left
 import time
-from math import fabs
+from math import sqrt, pow, fabs
+import warnings
 
 from pymatgen.core.periodic_table import Specie, Element
 from pymatgen.core.sites import PeriodicSite
@@ -40,6 +41,8 @@ from pymatgen.analysis.structure_analyzer import VoronoiCoordFinder, \
 from pymatgen.analysis.structure_matcher import StructureMatcher, \
     SpeciesComparator
 from pymatgen.analysis.bond_valence import BVAnalyzer
+from pymatgen.analysis.local_env import MinimumDistanceNN
+
 import six
 from six.moves import filter
 from six.moves import map
@@ -61,6 +64,8 @@ class ValenceIonicRadiusEvaluator(object):
     """
 
     def __init__(self, structure):
+        warnings.warn("ValenceIonicRadiusEvaluator will be moved to"
+                      " local_env.py with pymatgen >= 2018")
         self._structure = structure.copy()
         self._valences = self._get_valences()
         self._ionic_radii = self._get_ionic_radii()
@@ -1513,103 +1518,6 @@ def symmetry_reduced_voronoi_nodes(
         #return node_dist_sites, edgecenter_dist_sites, facecenter_dist_sites
 
 
-def get_neighbors_of_site_with_index(struct, n, p=None):
-    """
-    Determine the neighbors around the site that has index n in the input
-    Structure object struct, given the approach defined by parameters
-    p.  All supported neighbor-finding approaches and listed and
-    explained in the following.  All approaches start by creating a
-    tentative list of neighbors using a large cutoff radius defined in
-    parameter dictionary p via key "cutoff".
-    "min_dist": find nearest neighbor and its distance d_nn; consider all
-            neighbors which are within a distance of d_nn * (1 + delta),
-            where delta is an additional parameter provided in the
-            dictionary p via key "delta".
-    "scaled_VIRE": compute the radii, r_i, of all sites on the basis of
-            the valence-ionic radius evaluator (VIRE); consider all
-            neighbors for which the distance to the central site is less
-            than the sum of the radii multiplied by an a priori chosen
-            parameter, delta,
-            (i.e., dist < delta * (r_central + r_neighbor)).
-    "min_relative_VIRE": same approach as "min_dist", except that we
-            use relative distances (i.e., distances divided by the sum of the
-            atom radii from VIRE).
-    "min_relative_OKeeffe": same approach as "min_relative_VIRE", except
-            that we use the bond valence parameters from O'Keeffe's bond valence
-            method (J. Am. Chem. Soc. 1991, 3226-3229) to calculate
-            relative distances.
-
-    Args:
-        struct (Structure): input structure.
-        n (int): index of site in Structure object for which
-                neighbors are to be determined.
-        p (dict): specification (via "approach" key; default is "min_dist")
-                and parameters of neighbor-finding approach.
-                Default cutoff radius is 6 Angstrom (key: "cutoff").
-                Other default parameters are as follows.
-                min_dist: "delta": 0.15;
-                min_relative_OKeeffe: "delta": 0.05;
-                min_relative_VIRE: "delta": 0.05;
-                scaled_VIRE: "delta": 2.
-
-    Returns: ([site]) list of sites that are considered to be nearest
-            neighbors to site with index n in Structure object struct.
-    """
-    sites = []
-    if p is None:
-        p = {"approach": "min_dist", "delta": 0.15,
-                "cutoff": 6}
-
-    if p["approach"] not in [
-            "min_relative_OKeeffe", "min_dist", "min_relative_VIRE", \
-            "scaled_VIRE"]:
-        raise RuntimeError("Unsupported neighbor-finding approach"
-                " (\"{}\")".format(p["approach"]))
-
-    if p["approach"] == "min_relative_OKeeffe" or p["approach"] == "min_dist":
-        neighs_dists = struct.get_neighbors(struct[n], p["cutoff"])
-        try:
-            eln = struct[n].specie.element
-        except:
-            eln = struct[n].species_string
-    elif p["approach"] == "scaled_VIRE" or p["approach"] == "min_relative_VIRE":
-        vire = ValenceIonicRadiusEvaluator(struct)
-        if np.linalg.norm(struct[n].coords-vire.structure[n].coords) > 1e-6:
-            raise RuntimeError("Mismatch between input structure and VIRE structure.")
-        neighs_dists = vire.structure.get_neighbors(vire.structure[n], p["cutoff"])
-        rn = vire.radii[vire.structure[n].species_string]
-
-    reldists_neighs = []
-    for neigh, dist in neighs_dists:
-        if p["approach"] == "scaled_VIRE":
-            dscale = p["delta"] * (vire.radii[neigh.species_string] + rn)
-            if dist < dscale:
-                sites.append(neigh)
-        elif p["approach"] == "min_relative_VIRE":
-            reldists_neighs.append([dist / (
-                    vire.radii[neigh.species_string] + rn), neigh])
-        elif p["approach"] == "min_relative_OKeeffe":
-            try:
-                el2 = neigh.specie.element
-            except:
-                el2 = neigh.species_string
-            reldists_neighs.append([dist / get_okeeffe_distance_prediction(
-                    eln, el2), neigh])
-        elif p["approach"] == "min_dist":
-            reldists_neighs.append([dist, neigh])
-
-    if p["approach"] == "min_relative_VIRE" or \
-            p["approach"] == "min_relative_OKeeffe" or \
-            p["approach"] == "min_dist":
-        min_reldist = min([reldist for reldist, neigh in reldists_neighs])
-        for reldist, neigh in reldists_neighs:
-            if reldist / min_reldist < 1.0 + p["delta"]:
-                sites.append(neigh)
-
-    return sites
-
-
-
 class StructureMotifInterstitial(Defect):
 
     """
@@ -1676,6 +1584,7 @@ class StructureMotifInterstitial(Defect):
         self._defect_types = []
         self._defect_site_multiplicity = []
         self._defect_cns = []
+        self._defect_opvals = []
 
         rots, trans = SpacegroupAnalyzer(
                 struct)._get_symmetry()        
@@ -1712,10 +1621,9 @@ class StructureMotifInterstitial(Defect):
                         ddelta = 0.1
                         delta_end = 0.8
                         while delta < delta_end:
-                            neighs = get_neighbors_of_site_with_index(
-                                    struct_w_inter, natoms-1, p={
-                                    "approach": "min_dist", "delta": delta,
-                                    "cutoff": 6})
+                            neighs = MinimumDistanceNN(
+                                    tol=delta, cutoff=6).get_nn(
+                                    struct_w_inter, natoms-1)
                             nneighs = len(neighs)
                             if nneighs > 6:
                                 break
@@ -1724,11 +1632,11 @@ class StructureMotifInterstitial(Defect):
                                 continue
 
                             allsites = [s for s in neighs]
-                            indeces_neighs = [i for i in range(len(allsites))]
+                            indices_neighs = [i for i in range(len(allsites))]
                             allsites.append(struct_w_inter.sites[natoms-1])
                             opvals = ops.get_order_parameters(
                                         allsites, len(allsites)-1,
-                                        indeces_neighs=indeces_neighs)
+                                        indices_neighs=indices_neighs)
                             motif_type = "unrecognized"
                             if "tet" in motif_types:
                                 if nneighs == 4 and \
@@ -1869,6 +1777,7 @@ class StructureMotifInterstitial(Defect):
                 self._defect_types.append(trialsites[i]["mtype"])
                 self._defect_cns.append(trialsites[i]["cns"])
                 self._defect_site_multiplicity.append(multiplicity[i])
+                self._defect_opvals.append(trialsites[i]["opval"])
 
 
     def enumerate_defectsites(self):
@@ -1902,6 +1811,16 @@ class StructureMotifInterstitial(Defect):
                     (i.e., {elem1 (string): cn1 (int), ...}).
         """
         return self._defect_cns[i]
+
+
+    def get_op_value(self, i):
+        """
+        Get order-parameter value of defect with index i.
+
+        Returns:
+            opval (float): OP value.
+        """
+        return self._defect_opvals[i]
 
 
     def make_supercells_with_defects(self, scaling_matrix):

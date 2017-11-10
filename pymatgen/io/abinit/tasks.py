@@ -26,7 +26,7 @@ from monty.functools import lazy_property, return_none_if_raise
 from monty.json import MSONable
 from monty.fnmatch import WildCard
 from pymatgen.core.units import Memory
-from pymatgen.serializers.json_coders import json_pretty_dump, pmg_serialize
+from pymatgen.util.serialization import json_pretty_dump, pmg_serialize
 from .utils import File, Directory, irdvars_for_ext, abi_splitext, FilepathFixer, Condition, SparseHistogram
 from .qadapters import make_qadapter, QueueAdapter, QueueAdapterError
 from . import qutils as qu
@@ -1093,11 +1093,14 @@ class AbinitBuild(object):
             fh.write(script)
         qjob, process = manager.qadapter.submit_to_queue(script_file)
         process.wait()
-        # To avoid: ResourceWarning: unclosed file <_io.BufferedReader name=87> in py3k
-        process.stderr.close()
 
         if process.returncode != 0:
             logger.critical("Error while executing %s" % script_file)
+            print("stderr:", process.stderr.read())
+            print("stdout:", process.stdout.read())
+
+        # To avoid: ResourceWarning: unclosed file <_io.BufferedReader name=87> in py3k
+        process.stderr.close()
 
         with open(stdout, "rt") as fh:
             self.info = fh.read()
@@ -1149,6 +1152,7 @@ class AbinitBuild(object):
          Revision  : 1226
          Committed : 0
         """
+        self.version = "0.0.0"
         self.has_netcdf = False
         self.has_omp = False
         self.has_mpi, self.has_mpiio = False, False
@@ -1185,7 +1189,6 @@ class AbinitBuild(object):
         from monty.operator import operator_from_str
         op = operator_from_str(op)
         return op(parse_version(self.version), parse_version(version_string))
-
 
 
 class FakeProcess(object):
@@ -1388,6 +1391,7 @@ class Task(six.with_metaclass(abc.ABCMeta, Node)):
         self.mpiabort_file = File(os.path.join(self.workdir, "__ABI_MPIABORTFILE__"))
 
         # Directories with input|output|temporary data.
+        self.wdir = Directory(self.workdir)
         self.indir = Directory(os.path.join(self.workdir, "indata"))
         self.outdir = Directory(os.path.join(self.workdir, "outdata"))
         self.tmpdir = Directory(os.path.join(self.workdir, "tmpdata"))
@@ -1490,7 +1494,8 @@ class Task(six.with_metaclass(abc.ABCMeta, Node)):
         """
         return os.path.join(self.workdir, self.prefix.odata + "_" + ext)
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def executable(self):
         """
         Path to the executable associated to the task (internally stored in self._executable).
@@ -1542,6 +1547,12 @@ class Task(six.with_metaclass(abc.ABCMeta, Node)):
         """
         manager = self.manager if hasattr(self, "manager") else self.flow.manager
         self.manager = manager.new_with_fixed_mpi_omp(mpi_procs, omp_threads)
+
+    #def set_max_ncores(self, max_ncores):
+    #    """
+    #    """
+    #    manager = self.manager if hasattr(self, "manager") else self.flow.manager
+    #    self.manager = manager.new_with_max_ncores(mpi_procs, omp_threads)
 
     #@check_spectator
     def _on_done(self):
@@ -3946,14 +3957,15 @@ class OpticTask(Task):
     """
     color_rgb = np.array((255, 204, 102)) / 255
 
-    def __init__(self, optic_input, nscf_node, ddk_nodes, workdir=None, manager=None):
+    def __init__(self, optic_input, nscf_node, ddk_nodes, use_ddknc=False, workdir=None, manager=None):
         """
         Create an instance of :class:`OpticTask` from an string containing the input.
 
         Args:
-            optic_input: string with the optic variables (filepaths will be added at run time).
-            nscf_node: The NSCF task that will produce thw WFK file or string with the path of the WFK file.
-            ddk_nodes: List of :class:`DdkTask` nodes that will produce the DDK files or list of DDF paths.
+            optic_input: :class:`OpticInput` object with optic variables.
+            nscf_node: The task that will produce the WFK file with the KS energies or path to the WFK file.
+            ddk_nodes: List of :class:`DdkTask` nodes that will produce the DDK files or list of DDK filepaths.
+                Order (x, y, z)
             workdir: Path to the working directory.
             manager: :class:`TaskManager` object.
         """
@@ -3964,8 +3976,11 @@ class OpticTask(Task):
         #print(self.nscf_node, self.ddk_nodes)
 
         # Use DDK extension instead of 1WF
-        deps = {n: "1WF" for n in self.ddk_nodes}
-        #deps = {n: "DDK" for n in self.ddk_nodes}
+        if use_ddknc:
+            deps = {n: "DDK.nc" for n in self.ddk_nodes}
+        else:
+            deps = {n: "1WF" for n in self.ddk_nodes}
+
         deps.update({self.nscf_node: "WFK"})
 
         super(OpticTask, self).__init__(optic_input, workdir=workdir, manager=manager, deps=deps)
@@ -4022,14 +4037,20 @@ class OpticTask(Task):
     @property
     def ddk_filepaths(self):
         """Returns (at runtime) the absolute path of the DDK files produced by the DDK runs."""
+        # This to support new version of optic that used DDK.nc
+        paths = [ddk_task.outdir.has_abiext("DDK.nc") for ddk_task in self.ddk_nodes]
+        if all(p for p in paths):
+            return paths
+
+        # This is deprecated and can be removed when new version of Abinit is released.
         return [ddk_task.outdir.has_abiext("1WF") for ddk_task in self.ddk_nodes]
 
     def make_input(self):
         """Construct and write the input file of the calculation."""
         # Set the file paths.
-        all_files ={"ddkfile_"+str(n+1) : ddk for n,ddk in enumerate(self.ddk_filepaths)}
-        all_files.update({"wfkfile" : self.wfk_filepath})
-        files_nml = {"FILES" : all_files}
+        all_files ={"ddkfile_" + str(n + 1): ddk for n, ddk in enumerate(self.ddk_filepaths)}
+        all_files.update({"wfkfile": self.wfk_filepath})
+        files_nml = {"FILES": all_files}
         files= nmltostring(files_nml)
 
         # Get the input specified by the user
@@ -4048,11 +4069,7 @@ class OpticTask(Task):
         """
 
     def get_results(self, **kwargs):
-        results = super(OpticTask, self).get_results(**kwargs)
-        #results.update(
-        #"epsilon_infinity":
-        #))
-        return results
+        return super(OpticTask, self).get_results(**kwargs)
 
     def fix_abicritical(self):
         """
