@@ -1496,32 +1496,32 @@ $${qverbatim}
             raise ValueError("Wrong value of qnodes parameter : {}".format(self.qnodes))
 
     def _get_select_with_master_mem_overhead_shared(self, ret_dict=False, memory_policy='mem'):
-        chunk_master, ncpus_master, vmem_master, mpiprocs_master = 1, 1, self.mem_per_proc+self.master_mem_overhead, 1
+        chunk_master, ncpus_master, mem_master, mpiprocs_master = 1, 1, self.mem_per_proc+self.master_mem_overhead, 1
         if self.mpi_procs > 1:
             chunks_slaves, ncpus_slaves, mem_slaves, mpiprocs_slaves = self.mpi_procs - 1, 1, self.mem_per_proc, 1
             select_params = AttrDict(chunk_master=chunk_master, ncpus_master=ncpus_master,
                                      mpiprocs_master=mpiprocs_master, mem_master=int(mem_master),
                                      chunks_slaves=chunks_slaves, ncpus_slaves=ncpus_slaves,
-                                     mpiprocs_slaves=mpiprocs_slaves, vmem_slaves=int(vmem_slaves))
+                                     mpiprocs_slaves=mpiprocs_slaves, vmem_slaves=int(mem_slaves))
             if memory_policy == 'vmem':
-                s = "{chunk_master}:ncpus={ncpus_master}:vmem={vmem_master}mb:mpiprocs={mpiprocs_master}+" \
-                    "{chunks_slaves}:ncpus={ncpus_slaves}:vmem={vmem_slaves}mb:" \
+                s = "{chunk_master}:ncpus={ncpus_master}:vmem={mem_master}mb:mpiprocs={mpiprocs_master}+" \
+                    "{chunks_slaves}:ncpus={ncpus_slaves}:vmem={mem_slaves}mb:" \
                     "mpiprocs={mpiprocs_slaves}".format(**select_params)
             elif memory_policy == 'mem':
-                s = "{chunk_master}:ncpus={ncpus_master}:mem={vmem_master}mb:mpiprocs={mpiprocs_master}+" \
-                    "{chunks_slaves}:ncpus={ncpus_slaves}:mem={vmem_slaves}mb:" \
+                s = "{chunk_master}:ncpus={ncpus_master}:mem={mem_master}mb:mpiprocs={mpiprocs_master}+" \
+                    "{chunks_slaves}:ncpus={ncpus_slaves}:mem={mem_slaves}mb:" \
                     "mpiprocs={mpiprocs_slaves}".format(**select_params)
             tot_ncpus = chunk_master*ncpus_master + chunks_slaves*ncpus_slaves
             if tot_ncpus != self.mpi_procs:
                 raise ValueError('Total number of cpus is different from mpi_procs ...')
         else:
             select_params = AttrDict(chunk_master=chunk_master, ncpus_master=ncpus_master,
-                                     mpiprocs_master=mpiprocs_master, vmem_master=int(vmem_master))
+                                     mpiprocs_master=mpiprocs_master, vmem_master=int(mem_master))
             if memory_policy == 'vmem':
-                s = "{chunk_master}:ncpus={ncpus_master}:vmem={vmem_master}mb:" \
+                s = "{chunk_master}:ncpus={ncpus_master}:vmem={mem_master}mb:" \
                     "mpiprocs={mpiprocs_master}".format(**select_params)
             elif memory_policy == 'mem':
-                s = "{chunk_master}:ncpus={ncpus_master}:mem={vmem_master}mb:" \
+                s = "{chunk_master}:ncpus={ncpus_master}:mem={mem_master}mb:" \
                     "mpiprocs={mpiprocs_master}".format(**select_params)
         if ret_dict:
             return s, select_params
